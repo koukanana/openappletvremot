@@ -1,0 +1,17 @@
+# 构建产物与本地 SDK
+build/
+*.unaligned.apk
+*.aligned.apk
+*.keystore
+*.jks
+debug.keystore
+
+# 每次运行 build_apk.sh 都会落在这个目录
+.androidtv/
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

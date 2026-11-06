@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="service_desc">把指定按键映射成 Home / Back 等系统动作</string>
+</resources>
