@@ -1,8 +1,8 @@
 # 小米蓝牙遥控器 × Android TV
 
+**简体中文** · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [繁體中文](README.zh-TW.md) · [Deutsch](README.de.md)
+
 > 让小米蓝牙遥控器（2 / 2 Pro）在任何 Android TV 上全键可用。索尼 BRAVIA 实测通过，不用 root。
->
-> Pair a Xiaomi Bluetooth remote with any Android TV — every key working, no root required.
 
 CleanYourTV 把 Android TV 的皮换成了苹果风味，但手感换不了。Apple TV 那只遥控器单买两百多，而 Android TV 阵营里最接近它的硬件是小米蓝牙遥控器 2 / 2 Pro——99 元（咸鱼 6 折全新能到 60 上下）。
 
