@@ -8,6 +8,13 @@ CleanYourTV 把 Android TV 的皮换成了苹果风味，但手感换不了。Ap
 
 它俩官方是不通的：小米的设备只保证小米电视能用，索尼的蓝牙又只认原厂配件。这个仓库就是拆那堵墙的。
 
+<table>
+<tr>
+<td align="center"><img src="docs/images/before-sony-remote.jpg" width="280"><br><sub><b>Before</b> · 索尼原装</sub></td>
+<td align="center"><img src="docs/images/after-xiaomi-remote-2pro.jpg" width="280"><br><sub><b>After</b> · 小米蓝牙遥控器 2 Pro</sub></td>
+</tr>
+</table>
+
 ## 效果
 
 | 键 | 状态 | 说明 |
