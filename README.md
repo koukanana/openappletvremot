@@ -50,19 +50,31 @@ AI 替不了这一步，因为此时它还没连上你的电视。
 
 ### 路线 A：交给 AI（推荐）
 
-这个仓库同时是一个 agent 技能。装进去之后，让 AI 自己读流程、编译、配对、修键：
+这个仓库同时就是一个 agent 技能：`SKILL.md` 是给它读的执行流程，`assets/` 是它要编译的代码，`scripts/tv.sh` 是它要调的命令，`references/pitfalls.md` 是它别重走的坑。clone 下来放进技能目录即可：
 
 ```bash
-git clone https://github.com/YOUR_GITHUB/androidtv-remote ~/.workbuddy/skills/androidtv-remote
+git clone https://github.com/YOUR_GITHUB/openappletvremot ~/.workbuddy/skills/openappletvremot
 ```
 
-（Claude Code 用户放到 `~/.claude/skills/androidtv-remote`，其他 agent 见文末）
+（Claude Code 用户放到 `~/.claude/skills/openappletvremot`；其他 agent 只要能让它读本地目录，指向仓库根即可）
 
 然后对它说：
 
-> 帮我用 androidtv-remote 技能，把这台电视（192.168.x.x）接上小米蓝牙遥控器，Home 和 TV 键也要修好。
+> 帮我用 openappletvremot 技能，把这台电视（192.168.x.x）接上小米蓝牙遥控器 2 Pro，Home 和 TV 键也要修好。技能和代码参考 https://github.com/YOUR_GITHUB/openappletvremot
 
-它会依次做完：连 ADB → 编译并安装两个小工具 → 按设备名关键字扫描配对 → 解除隐藏 API 限制接上 HID → 写按键映射 → 让你按两下验收。你只在三个地方动手：电视上点「允许」、遥控器同时长按「主页 + 菜单」5 秒、最后按键验收。
+它会依次做完：连 ADB → 编译并安装两个小工具 → 按设备名关键字扫描配对 → 解除隐藏 API 限制接上 HID → 写按键映射 → 让你按键验收。你只在三个地方动手：电视上点「允许」、遥控器同时长按「主页 + 菜单」5 秒、最后按键验收。
+
+技能内部的三层引用关系（AI 会自己顺着走）：
+
+```
+提示词「用 openappletvremot 技能」
+   └── SKILL.md          执行流程 §1~§6，每节都点到具体脚本或代码位置
+        ├── scripts/tv.sh         connect / prep / pair / hid / keys / map / enable
+        ├── assets/btpair/        配对 + 解除隐藏 API 限制 + connect HID（Java 源码）
+        ├── assets/btremap/       无障碍按键重映射（Java 源码）
+        ├── references/           索尼实测数据、13 条走不通的路
+        └── docs/                 给人看的故事版与技术版
+```
 
 ### 路线 B：手动
 
@@ -149,6 +161,12 @@ docs/完整指南.md             技术版：逐步操作 + 提示词全文
 - 遥控器：小米蓝牙遥控器 2 Pro（实测）、小米蓝牙遥控器 2（同架构，理论可用，未实测）
 - 电视：索尼 BRAVIA 2018–2020 系列实测；其他品牌原理相同，只需替换输入选择的 Activity
 - 电脑：macOS 实测，Linux/Windows 只需自备 adb 与 build-tools
+
+## 帮助其他品牌电视用上小米蓝牙遥控器
+
+这个方案目前只在索尼 BRAVIA 上跑通。其他品牌（TCL、海信、创维、小米电视、Shield、Chromecast with Google TV…）原理完全一致，差别只有两处：**输入选择界面的 Activity 名**和**个别键码**。
+
+如果你手上有别的电视，欢迎一起来把兼容方案补齐——测通了直接提 PR，说明机型和系统版本，把 `references/` 里补一份该品牌的实测数据（菜单位置、输入选择 Activity、键码表）就行，代码大概率不用改。
 
 ## 免责
 
