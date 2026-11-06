@@ -2,12 +2,12 @@
 name: openappletvremot
 description: 在没有 root 的 Android TV（索尼 BRAVIA / Google TV / 国产安卓电视）上用 adb 完成第三方蓝牙遥控器配对、HID 通道激活与按键重映射。当用户提出「电视遥控器配对不上」「系统蓝牙列表里搜不到遥控器」「遥控器某个键没反应 / 想把某个键改成输入选择」「adb 连电视装 APK」「电视蓝牙是不是被锁死了」「让小米蓝牙遥控器在电视上能用」时使用。
 agent_created: true
-repository: https://github.com/YOUR_GITHUB/openappletvremot
+repository: https://github.com/koukanana/openappletvremot
 ---
 
 # Android TV 遥控器：配对 + HID 激活 + 按键重映射
 
-> 开源仓库：<https://github.com/YOUR_GITHUB/openappletvremot>　·　本文件即该仓库的 `SKILL.md`
+> 开源仓库：<https://github.com/koukanana/openappletvremot>　·　本文件即该仓库的 `SKILL.md`
 > 代码在 `assets/btpair`（配对 + HID）与 `assets/btremap`（按键映射），封装脚本在 `scripts/tv.sh`
 > 面向读者的两篇文档：`docs/让小米强兼索尼.md`（故事版）、`docs/完整指南.md`（技术版）
 
