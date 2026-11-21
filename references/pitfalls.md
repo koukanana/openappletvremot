@@ -55,3 +55,13 @@
 | 反编译索尼 `framework.jar` / `classes.dex` | `dexdump` 解析失败（Sony 做过裁剪），改用 `app_process` 在机上反射 dump 方法表 |
 | `app_process` + `ActivityThread.systemMain()` + `bindService` 取 HID 代理 | Context 能拿到，但 AMS 拒绝：`Unable to find app for caller ... when binding service`——非 zygote 托管进程没有 ApplicationRecord。这条路只能用于 dump 方法表，不能用于实际调用 |
 | `monkey -p <pkg> -c android.intent.category.LEANBACK_LAUNCHER 1` | 可用，但对无 launcher intent 的系统 Activity 无效，认准 `am start -n` |
+
+## 电视上做 UI 的坑（btpair 2.0 踩过的）
+
+| 尝试 | 结果 |
+|---|---|
+| 用 `ScrollView` 当内容容器 | 它自己可获焦，方向键会停在空白滚动区上，焦点死活进不了按钮。必须 `setFocusable(false)` + `setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS)`（日志区）/`FOCUS_AFTER_DESCENDANTS`（列表区） |
+| 扫描到新设备就整表 `removeAllViews()` 重建 | 焦点随被移除的 View 一起消失，系统重新挑一个 focusable（通常是底部按钮），手感直接崩。正确做法：顺序没变只刷文字，顺序变了重建并记住 `focusedMac` 事后 `requestFocus()` 还原 |
+| 彩色按钮用同色描边做焦点态 | 蓝底蓝框等于没有焦点。焦点描边要用高对比色（白），填充同时提亮 |
+| 依赖初始焦点自然落位 | 列表是异步渲染的，布局完成时列表还空着，初始焦点会跑到页脚按钮。首次拿到数据后主动 `requestFocus()` 第一行 |
+| 方向键从列表往右 | 默认几何就近会落到按钮网格中间（比如「重连」）。给行设 `setNextFocusRightId()`：已配对指向「连接 HID」，未配对指向「配对」；目标按钮被禁用时把路由改到另一个 |
