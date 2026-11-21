@@ -16,6 +16,7 @@ import android.graphics.drawable.StateListDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -122,10 +123,10 @@ public class MainActivity extends Activity {
     private TextView panelMac;
     private TextView vBond;
     private TextView vHid;
-    private TextView vInput;
     private TextView vPrio;
     private TextView vRssi;
     private TextView logView;
+    private TextView mapStatus;
     private Button bScan;
     private Button bStop;
     private Button bBond;
@@ -145,6 +146,7 @@ public class MainActivity extends Activity {
     private String nameKeyword;
     private String wantMac;
     private int seq;
+    private long unbondArmedAt;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -273,6 +275,14 @@ public class MainActivity extends Activity {
         ui.postDelayed(poller, 1200);
     }
 
+    /** singleTop：重复 am start 只复用同一个界面，重跑扫描而不叠实例、不闪屏。 */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIntent(intent);
+    }
+
     private void handleIntent(Intent it) {
         String mac = it != null ? it.getStringExtra("mac") : null;
         String name = it != null ? it.getStringExtra("name") : null;
@@ -350,8 +360,8 @@ public class MainActivity extends Activity {
 
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
-        TextView title = text("蓝牙遥控器", 19, C_TEXT, true);
-        TextView sub = text("扫描 · 配对 · HID 连接", 11, C_DIM, false);
+        TextView title = text("遥控器配对助手", 19, C_TEXT, true);
+        TextView sub = text("扫描 · 配对 · HID 连接 · 按键映射", 11, C_DIM, false);
         titleBox.addView(title);
         titleBox.addView(sub);
         head.addView(titleBox, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -435,11 +445,11 @@ public class MainActivity extends Activity {
         right.addView(panelTitle);
 
         panelName = text("未选择设备", 18, C_TEXT, true);
-        panelName.setPadding(0, dp(6), 0, dp(2));
+        panelName.setPadding(0, dp(4), 0, dp(2));
         right.addView(panelName);
 
         panelMac = text("在上方列表中选择一台设备", 11, C_SUB, false);
-        panelMac.setPadding(0, 0, 0, dp(10));
+        panelMac.setPadding(0, 0, 0, dp(8));
         right.addView(panelMac);
 
         LinearLayout card = new LinearLayout(this);
@@ -448,14 +458,13 @@ public class MainActivity extends Activity {
         card.setPadding(dp(14), dp(10), dp(14), dp(10));
         vBond = infoRow(card, "配对");
         vHid = infoRow(card, "HID");
-        vInput = infoRow(card, "输入通道");
         vPrio = infoRow(card, "优先级");
         vRssi = infoRow(card, "信号");
         right.addView(card);
 
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.setPadding(0, dp(10), 0, 0);
+        row1.setPadding(0, dp(8), 0, 0);
         bBond = button("配对", C_ACCENT, true);
         bBond.setId(ID_BOND);
         bConnect = button("连接 HID", 0xFF2F6B4F, true);
@@ -467,13 +476,16 @@ public class MainActivity extends Activity {
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.setPadding(0, dp(8), 0, 0);
+        row2.setPadding(0, dp(6), 0, 0);
         bReconnect = button("重连", 0xFF2A3341, false);
         bReconnect.setId(ID_RECONNECT);
         bDisconnect = button("断开", 0xFF2A3341, false);
         bDisconnect.setId(ID_DISCONNECT);
         bUnbond = button("解除绑定", 0xFF4A2B2B, false);
         bUnbond.setId(ID_UNBOND);
+        // 危险动作不放在主操作的正下方：↓ 先落到安全按钮上
+        bBond.setNextFocusDownId(ID_RECONNECT);
+        bConnect.setNextFocusDownId(ID_DISCONNECT);
         row2.addView(bReconnect, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         row2.addView(space(dp(8), 1));
         row2.addView(bDisconnect, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -524,6 +536,15 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 BluetoothDevice d = devOf(selected);
                 if (d == null) return;
+                long now = System.currentTimeMillis();
+                if (now - unbondArmedAt > 4000) {
+                    unbondArmedAt = now;
+                    bUnbond.setText("确认解除？");
+                    appendLog("再按一次确认解除绑定（4 秒内有效）");
+                    return;
+                }
+                unbondArmedAt = 0;
+                bUnbond.setText("解除绑定");
                 if (removeBond(d)) {
                     appendLog("已解除绑定，可重新配对");
                 } else {
@@ -538,9 +559,17 @@ public class MainActivity extends Activity {
             }
         });
 
+        // 底部：左日志 / 右按键映射说明
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(LinearLayout.HORIZONTAL);
+        bottom.setPadding(0, dp(10), 0, 0);
+
+        LinearLayout logBox = new LinearLayout(this);
+        logBox.setOrientation(LinearLayout.VERTICAL);
+
         TextView logTitle = text("日志", 11, C_DIM, false);
-        logTitle.setPadding(0, dp(12), 0, dp(4));
-        right.addView(logTitle);
+        logTitle.setPadding(0, 0, 0, dp(4));
+        logBox.addView(logTitle);
 
         logView = text("", 11, C_SUB, false);
         logView.setLineSpacing(dp(2), 1f);
@@ -549,7 +578,31 @@ public class MainActivity extends Activity {
         logScroll.setFocusableInTouchMode(false);
         logScroll.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         logScroll.addView(logView);
-        right.addView(logScroll, lp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        logBox.addView(logScroll, lp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        bottom.addView(logBox, lp(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        bottom.addView(space(dp(12), 1));
+
+        // 右下角：按键映射说明（原来这里是整块空白）
+        LinearLayout mapCard = new LinearLayout(this);
+        mapCard.setOrientation(LinearLayout.VERTICAL);
+        mapCard.setBackground(roundRect(C_CARD, dp(10), 0, 0));
+        mapCard.setPadding(dp(11), dp(8), dp(11), dp(8));
+
+        TextView mapTitle = text("按键映射", 11, C_DIM, false);
+        mapCard.addView(mapTitle);
+        mapRow(mapCard, "Home", "122", "系统主页");
+        mapRow(mapCard, "TV", "68", "输入选择");
+        mapRow(mapCard, "语音", "135", "未映射（可选）");
+        // 撑开剩余高度，把生效状态压到卡片底部
+        mapCard.addView(new View(this), lp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        mapStatus = text("", 10, C_DIM, false);
+        mapStatus.setPadding(0, dp(5), 0, 0);
+        mapStatus.setLineSpacing(dp(2), 1f);
+        mapCard.addView(mapStatus);
+        bottom.addView(mapCard, lp(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.3f));
+
+        right.addView(bottom, lp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         body.addView(right, lp(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         root.addView(body, lp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -563,7 +616,7 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(5), 0, dp(5));
+        row.setPadding(0, dp(3), 0, dp(3));
         TextView l = text(label, 12, C_SUB, false);
         row.addView(l, lp(dp(62), ViewGroup.LayoutParams.WRAP_CONTENT, 0f));
         TextView v = text("—", 13, C_TEXT, false);
@@ -571,6 +624,27 @@ public class MainActivity extends Activity {
         row.addView(v, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         parent.addView(row);
         return v;
+    }
+
+    /** 按键映射的一行说明：键名 / 键码 / 映射目标。 */
+    private void mapRow(LinearLayout parent, String key, String code, String action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(2), 0, dp(2));
+
+        TextView k = text(key, 11, C_TEXT, true);
+        row.addView(k, lp(dp(32), ViewGroup.LayoutParams.WRAP_CONTENT, 0f));
+
+        TextView c = text(code, 10, C_DIM, false);
+        c.setTypeface(android.graphics.Typeface.MONOSPACE);
+        row.addView(c, lp(dp(32), ViewGroup.LayoutParams.WRAP_CONTENT, 0f));
+
+        TextView a = text(action, 11, C_SUB, false);
+        a.setSingleLine(true);
+        a.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        row.addView(a, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        parent.addView(row);
     }
 
     private TextView text(String s, float size, int color, boolean bold) {
@@ -637,19 +711,16 @@ public class MainActivity extends Activity {
         b.setTextColor(primary ? 0xFFFFFFFF : C_TEXT);
         b.setAllCaps(false);
         b.setGravity(Gravity.CENTER);
-        b.setMinHeight(dp(38));
+        b.setMinHeight(dp(36));
         b.setMinWidth(0);
         b.setMinimumWidth(0);
         b.setPadding(dp(10), dp(6), dp(10), dp(6));
         b.setBackground(focusableBg(bg, lighten(bg, 0.28f), dp(8), 0xFFFFFFFF));
         b.setFocusable(true);
         b.setFocusableInTouchMode(true);
-        b.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-            public void onFocusChange(View v, boolean hasFocus) {
-                v.setScaleX(hasFocus ? 1.05f : 1f);
-                v.setScaleY(hasFocus ? 1.05f : 1f);
-            }
-        });
+        // 不再用 setScaleX/Y 做焦点放大：按权重平分宽度的按钮一放大就会溢出容器边缘，
+        // 焦点态完全由「白色描边 + 提亮填充」表达，描边是内描边，不改变布局尺寸。
+        b.setStateListAnimator(null);
         return b;
     }
 
@@ -954,6 +1025,8 @@ public class MainActivity extends Activity {
             return;
         }
         selected = e;
+        unbondArmedAt = 0;
+        bUnbond.setText("解除绑定");
         highlightSelected();
         refreshPanel();
     }
@@ -963,9 +1036,45 @@ public class MainActivity extends Activity {
     private final Runnable poller = new Runnable() {
         public void run() {
             refreshPanel();
+            refreshMapping();
             ui.postDelayed(this, 1500);
         }
     };
+
+    /**
+     * 右下角映射卡片的实时状态：读 Settings.Secure 里的 btremap_map 与无障碍服务列表。
+     * 只做展示，不写配置（写配置由 tv.sh map / 无障碍服务负责）。
+     */
+    private void refreshMapping() {
+        if (mapStatus == null) {
+            return;
+        }
+        String map = null;
+        String svc = null;
+        try {
+            map = Settings.Secure.getString(getContentResolver(), "btremap_map");
+            svc = Settings.Secure.getString(getContentResolver(),
+                    "enabled_accessibility_services");
+        } catch (Throwable ignored) {
+        }
+        boolean hasSvc = svc != null && svc.toLowerCase().contains("remap");
+        boolean hasHome = map != null && map.contains("122>");
+        boolean hasTv = map != null && map.contains("68>");
+
+        if (hasSvc && hasHome && hasTv) {
+            mapStatus.setText("已生效 · 无障碍服务接管中");
+            mapStatus.setTextColor(C_OK);
+        } else if (!hasSvc) {
+            mapStatus.setText("未生效 · 无障碍服务未启用");
+            mapStatus.setTextColor(C_WARN);
+        } else if (!hasHome && !hasTv) {
+            mapStatus.setText("未生效 · 映射为空");
+            mapStatus.setTextColor(C_WARN);
+        } else {
+            mapStatus.setText("部分生效 · 缺少 " + (hasHome ? "TV(68)" : "Home(122)"));
+            mapStatus.setTextColor(C_WARN);
+        }
+    }
 
     private void refreshPanel() {
         BluetoothDevice d = devOf(selected);
@@ -976,7 +1085,6 @@ public class MainActivity extends Activity {
             panelMac.setText("在上方列表中选择一台设备");
             vBond.setText("—");
             vHid.setText("—");
-            vInput.setText("—");
             vPrio.setText("—");
             vRssi.setText("—");
             refreshButtons();
@@ -1015,7 +1123,7 @@ public class MainActivity extends Activity {
             selected.hidState = hs;
         }
         if (hs == BluetoothProfile.STATE_CONNECTED) {
-            vHid.setText("已连接");
+            vHid.setText("已连接 · 可作输入设备");
             vHid.setTextColor(C_OK);
         } else if (hs == BluetoothProfile.STATE_CONNECTING) {
             vHid.setText("连接中…");
@@ -1029,17 +1137,6 @@ public class MainActivity extends Activity {
         } else {
             vHid.setText("未连接");
             vHid.setTextColor(C_SUB);
-        }
-
-        if (hs < 0) {
-            vInput.setText("未知");
-            vInput.setTextColor(C_DIM);
-        } else if (hs == BluetoothProfile.STATE_CONNECTED) {
-            vInput.setText("已就绪（可作为输入设备）");
-            vInput.setTextColor(C_OK);
-        } else {
-            vInput.setText("无按键通道");
-            vInput.setTextColor(C_SUB);
         }
 
         int prio = hidPriority(d);

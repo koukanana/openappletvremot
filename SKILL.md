@@ -126,7 +126,7 @@ adb shell getevent -lt /dev/input/eventN      # 按方向键应出 EV_MSC MSC_SC
 
 遥控器掉线自行解绑（`BOND_STATE_NONE`）时，重跑一次 `tv.sh <ip> pair` 即可（仍按名称自动匹配，不需要 MAC）；只是重新接 HID 可以更快：`am start -n com.atvremote.pair/.MainActivity --ez hid true`（工具会优先挑名称匹配的已配对设备）。
 
-需要人来判断「连哪一台」时（家里蓝牙设备多、名字都叫不出来），把界面交给用户：`tv.sh <ip> gui`，左侧列表选设备、右侧按钮配对/重连。不要自己在几十台设备里猜 MAC。
+需要人来判断「连哪一台」时（家里蓝牙设备多、名字都叫不出来），把界面交给用户：`tv.sh <ip> gui`，左侧列表选设备、右侧按钮配对/重连；右下角会实时显示按键映射是否生效，省掉一次 `settings get secure btremap_map`。不要自己在几十台设备里猜 MAC。
 
 排查掉线时的固定顺序：先看绑定还在不在（`Bonded devices` 段空 = 绑定丢了，得重配），再看 HID 状态，最后看设备是否在广播（`--ez scan true` 扫一轮，扫不到说明是电量/休眠/被手机连走，不是电视侧问题）。
 
