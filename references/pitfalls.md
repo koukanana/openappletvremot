@@ -65,3 +65,14 @@
 | 彩色按钮用同色描边做焦点态 | 蓝底蓝框等于没有焦点。焦点描边要用高对比色（白），填充同时提亮 |
 | 依赖初始焦点自然落位 | 列表是异步渲染的，布局完成时列表还空着，初始焦点会跑到页脚按钮。首次拿到数据后主动 `requestFocus()` 第一行 |
 | 方向键从列表往右 | 默认几何就近会落到按钮网格中间（比如「重连」）。给行设 `setNextFocusRightId()`：已配对指向「连接 HID」，未配对指向「配对」；目标按钮被禁用时把路由改到另一个 |
+
+## 重连 / 解绑 / 配对失败的坑（btpair 2.2 踩过的）
+
+| 现象 | 真实原因 | 处置 |
+|---|---|---|
+| 界面显示「已连接 · 可作输入设备」，但按键完全没反应 | HID profile 的 `state=2` 只代表 L2CAP 通道开了，不代表内核注册了输入节点 | 必须用 `InputDevice.getDeviceIds()` 按设备名核对；找不到就是「通道假连」，不能只看 profile state |
+| 上述假连时 `getevent` 只有电视本机 3 个节点 | `bta_hh_co_send_hid_info: dscp_len = 66`（完整应 86）、`version=0x0011`（应 0x0111）、`bta_hh_co_open: attr_mask = 0x0000`。report map 被截断错位，`uhid` 拒绝创建设备 | 断开 HID，等通道真正回落到 0 再 connect；重启蓝牙进程/电视都无效，因为坏数据在 `bta_gattc` 缓存和 half-dead 的 uhid 句柄里 |
+| 解绑后重连一直是 66 字节 | 解绑直接调 `removeBond()`，bt stack 走 `btif_hh_virtual_unplug` 报 `status=5`（device not opened），旧 uhid 句柄没销毁，重连时 `fd` 被复用 | 解绑前先 `HID disconnect()`，等 1.6 秒再 `removeBond()` |
+| `createBond()` 等 30 秒必失败 | 日志 `btif_get_device_type: type 2`（DUAL）。纯 BLE 遥控器被当成双模，栈先试 BR/EDR，最后 `L2CA_RemoveFixedChnl CID:0x0006 not connected` / `btm_proc_smp_cback: p_dev_rec is NULL`，SMP 通道从未建立 | 反射调 `BluetoothDevice.setType(DEVICE_TYPE_LE)` + `createBond(int transport)` 传 `TRANSPORT_LE`，配对 1 秒内完成 |
+| 配对失败后广播里还能看到遥控器 | 能看到广播 ≠ 处于配对模式。普通广播不会接受配对，`createBond` 必然超时 | 提示用户长按组合键至指示灯快闪，再发起配对 |
+| `adb shell input tap` 点在按钮上没反应 | 列表在扫描中不断 `markListDirty` 重建，点击被吞；且列表行会滚动，固定坐标点到了别的设备 | 先「停止」扫描再点；或用 `am start --es mac <MAC> --ez autobond true` 走 Intent 直达，不依赖坐标 |

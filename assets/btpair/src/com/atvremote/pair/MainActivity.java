@@ -20,6 +20,7 @@ import android.provider.Settings;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.InputDevice;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -89,6 +90,8 @@ public class MainActivity extends Activity {
         int rssi = -127;
         int bondState = BluetoothDevice.BOND_NONE;
         int hidState = -1;
+        /** HID 通道连上且内核已注册输入节点，按键才算真的能用。 */
+        boolean inputOk;
         long seenAt;
         int order;
 
@@ -227,6 +230,7 @@ public class MainActivity extends Activity {
                     }
                 } else if (state == BluetoothDevice.BOND_NONE && prev == BluetoothDevice.BOND_BONDING) {
                     Log.i(TAG, "RESULT=FAILED " + addr);
+                    appendLog("配对失败 · 请让遥控器进入配对模式后再试（长按组合键至指示灯快闪）");
                     if (addr.equals(wantMac)) {
                         wantMac = null;
                     }
@@ -545,17 +549,26 @@ public class MainActivity extends Activity {
                 }
                 unbondArmedAt = 0;
                 bUnbond.setText("解除绑定");
-                if (removeBond(d)) {
-                    appendLog("已解除绑定，可重新配对");
-                } else {
-                    appendLog("解除绑定失败（需系统隐藏接口权限）");
+                // 直接 removeBond 会让 bt stack 走 virtual_unplug 报 status=5，
+                // 残留半死的 uhid 句柄，之后重连只能拿到残缺的 report map。
+                // 先摘掉 HID profile，等它真正断开再解绑。
+                final BluetoothDevice target = d;
+                int st = hidState(d);
+                if (st != BluetoothProfile.STATE_DISCONNECTED) {
+                    hidDisconnect(d);
+                    appendLog("先断开 HID 通道，1.6 秒后解除绑定");
                 }
                 ui.postDelayed(new Runnable() {
                     public void run() {
+                        if (removeBond(target)) {
+                            appendLog("已解除绑定 · 请让遥控器进入配对模式后重新扫描");
+                        } else {
+                            appendLog("解除绑定失败（需系统隐藏接口权限）");
+                        }
                         refreshPanel();
                         markListDirty();
                     }
-                }, 1500);
+                }, 1600);
             }
         });
 
@@ -1122,9 +1135,17 @@ public class MainActivity extends Activity {
         if (selected != null) {
             selected.hidState = hs;
         }
-        if (hs == BluetoothProfile.STATE_CONNECTED) {
-            vHid.setText("已连接 · 可作输入设备");
+        // 只有内核注册了输入节点，按键才真的能用；profile 的 CONNECTED 会骗人
+        boolean inputOk = hs == BluetoothProfile.STATE_CONNECTED && inputDevicePresent(d);
+        if (selected != null) {
+            selected.inputOk = inputOk;
+        }
+        if (hs == BluetoothProfile.STATE_CONNECTED && inputOk) {
+            vHid.setText("已连接 · 按键生效");
             vHid.setTextColor(C_OK);
+        } else if (hs == BluetoothProfile.STATE_CONNECTED) {
+            vHid.setText("通道已连 · 按键未注册，点「修复」");
+            vHid.setTextColor(C_ERR);
         } else if (hs == BluetoothProfile.STATE_CONNECTING) {
             vHid.setText("连接中…");
             vHid.setTextColor(C_WARN);
@@ -1179,6 +1200,14 @@ public class MainActivity extends Activity {
         bUnbond.setEnabled(bonded);
         bStop.setEnabled(scanning);
         bScan.setEnabled(!scanning);
+
+        // 通道假连时把按钮改成「修复」，让用户知道该点哪个
+        boolean needFix = bonded && hidState(d) == BluetoothProfile.STATE_CONNECTED
+                && !inputDevicePresent(d);
+        String reconnectLabel = needFix ? "修复" : "重连";
+        if (!reconnectLabel.contentEquals(bReconnect.getText())) {
+            bReconnect.setText(reconnectLabel);
+        }
 
         float a = 0.45f;
         bBond.setAlpha(bBond.isEnabled() ? 1f : a);
@@ -1297,6 +1326,50 @@ public class MainActivity extends Activity {
 
     // -------------------------------------------------------- 配对 / HID
 
+    /**
+     * 按设备实际承载的传输层发起配对。
+     * 遥控器是纯 BLE HID，但 bt_config 里常被记成 DUAL(type=2)，
+     * 于是 createBond() 先试 BR/EDR，白等 30 秒直到 SMP 超时
+     * （日志：L2CA_RemoveFixedChnl CID:0x0006 not connected / btm_proc_smp_cback: p_dev_rec is NULL）。
+     * 这里先把 type 纠正为 LE，再走 createBond(TRANSPORT_LE)，让配对直接落在 LE 上。
+     */
+    private boolean createBondForced(BluetoothDevice dev) {
+        int type = -1;
+        try {
+            type = dev.getType();
+        } catch (Throwable ignored) {
+        }
+        Log.i(TAG, "bond prep: type=" + type + " name=" + dev.getName());
+        boolean le = type == BluetoothDevice.DEVICE_TYPE_LE
+                || type == BluetoothDevice.DEVICE_TYPE_DUAL;
+        if (le) {
+            try {
+                Method st = BluetoothDevice.class.getMethod("setType", int.class);
+                Object r = st.invoke(dev, BluetoothDevice.DEVICE_TYPE_LE);
+                Log.i(TAG, "setType(LE) = " + r);
+            } catch (Throwable t) {
+                Log.w(TAG, "setType failed: " + t);
+            }
+            try {
+                Method cb = BluetoothDevice.class.getMethod("createBond", int.class);
+                Object r = cb.invoke(dev, 2 /* TRANSPORT_LE */);
+                if (Boolean.TRUE.equals(r)) {
+                    Log.i(TAG, "createBond(TRANSPORT_LE) = true");
+                    return true;
+                }
+                Log.w(TAG, "createBond(TRANSPORT_LE) = " + r);
+            } catch (Throwable t) {
+                Log.w(TAG, "createBond(transport) failed: " + t);
+            }
+        }
+        try {
+            return dev.createBond();
+        } catch (Throwable t) {
+            Log.e(TAG, "createBond failed: " + t);
+            return false;
+        }
+    }
+
     private void bond(BluetoothDevice dev) {
         int state = dev.getBondState();
         Log.i(TAG, "bond request " + dev.getAddress() + " state=" + stateName(state));
@@ -1309,7 +1382,7 @@ public class MainActivity extends Activity {
             appendLog("正在配对中，稍等…");
             return;
         }
-        boolean started = dev.createBond();
+        boolean started = createBondForced(dev);
         Log.i(TAG, "createBond() = " + started + " for " + dev.getAddress());
         appendLog(started ? "发起配对：" + dev.getAddress() : "配对请求被拒绝");
         if (!started && dev.getAddress().equals(wantMac)) {
@@ -1328,14 +1401,29 @@ public class MainActivity extends Activity {
             return;
         }
         ensureHidProxy();
-        appendLog("重连：" + d.getAddress());
+        // CONNECTED 但输入节点缺失 = 通道假连，先彻底断开再重挂，等待时间也要放宽
+        boolean broken = hidState(d) == BluetoothProfile.STATE_CONNECTED && !inputDevicePresent(d);
+        appendLog(broken ? "修复：通道已连但按键无效，断开后重新挂载" : ("重连：" + d.getAddress()));
         hidDisconnect(d);
+        reconnectAfterDisconnect(d, broken ? 2200 : 900, 0);
+    }
+
+    /** 等 HID 真正回落到未连接再发起 connect，否则会被蓝牙栈判定为 already added 而复用坏句柄。 */
+    private void reconnectAfterDisconnect(final BluetoothDevice d, final long delay, final int attempt) {
         ui.postDelayed(new Runnable() {
             public void run() {
+                int st = hidState(d);
+                boolean stillUp = st == BluetoothProfile.STATE_CONNECTED
+                        || st == BluetoothProfile.STATE_DISCONNECTING;
+                if (stillUp && attempt < 6) {
+                    reconnectAfterDisconnect(d, 700, attempt + 1);
+                    return;
+                }
+                Log.i(TAG, "reconnect: state=" + st + " attempt=" + attempt);
                 hidSetPriority(d, 100);
                 connectHid(d, 4);
             }
-        }, 900);
+        }, delay);
     }
 
     private BluetoothDevice devOf(DeviceEntry e) {
@@ -1462,8 +1550,51 @@ public class MainActivity extends Activity {
         }
     }
 
-    private int hidPriority(BluetoothDevice dev) {
-        if (hidProxy == null || dev == null) {
+    /**
+     * HID profile 报 CONNECTED 不等于按键生效：只有当内核真的建出输入节点才算数。
+     * 蓝牙栈把设备名原样交给 uhid，所以按名字匹配，地址的两种写法作为兜底。
+     * 出问题时 dscp_len 会短于完整 report map（例如 66 vs 86）或 attr_mask=0，
+     * 此时 uhid 拒绝注册，getevent 里看不到设备，必须断开重连。
+     */
+    private boolean inputDevicePresent(BluetoothDevice d) {
+        if (d == null) {
+            return false;
+        }
+        String dn = null;
+        try {
+            dn = d.getName();
+        } catch (Throwable ignored) {
+        }
+        if (dn != null) {
+            dn = dn.trim();
+        }
+        String addr = d.getAddress();
+        String addrUs = addr == null ? null : addr.replace(':', '_');
+        try {
+            for (int id : InputDevice.getDeviceIds()) {
+                InputDevice in = InputDevice.getDevice(id);
+                if (in == null) {
+                    continue;
+                }
+                String n = in.getName();
+                if (n == null || n.trim().isEmpty()) {
+                    continue;
+                }
+                if (dn != null && !dn.isEmpty() && n.trim().equalsIgnoreCase(dn)) {
+                    return true;
+                }
+                if (addr != null && (n.trim().equalsIgnoreCase(addr)
+                        || (addrUs != null && n.trim().equalsIgnoreCase(addrUs)))) {
+                    return true;
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "inputDevicePresent failed: " + t);
+        }
+        return false;
+    }
+
+    private int hidPriority(BluetoothDevice dev) {        if (hidProxy == null || dev == null) {
             return -1;
         }
         try {
