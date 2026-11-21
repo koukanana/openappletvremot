@@ -8,6 +8,7 @@
 #   tv.sh <ip> keys [秒]          监听真实按键（默认 30s）
 #   tv.sh <ip> logs               看重映射服务的按键日志
 #   tv.sh <ip> scan [秒] [关键字]  扫蓝牙设备名（不配对）
+#   tv.sh <ip> gui                打开图形界面（左侧选设备，右侧看状态 / 配对 / 重连）
 #   tv.sh <ip> pair [关键字|MAC] [--rescan]  配对：默认按名称关键字「小米蓝牙遥控器」自动匹配
 #                                  （已配对设备会直接接 HID；--rescan 强制重新扫描）
 #   tv.sh <ip> hid                查看 HID 连接状态与输入设备
@@ -97,6 +98,12 @@ case "$CMD" in
     ;;
   logs)
     need_device; "${A[@]}" logcat -d | grep -E 'BTRemap' | tail -40
+    ;;
+  gui)
+    need_device
+    "${A[@]}" shell am force-stop $PKG_PAIR
+    "${A[@]}" shell "am start -n $PKG_PAIR/.MainActivity" >/dev/null
+    echo "已在电视上打开图形界面：左侧选设备，右侧看状态 / 配对 / 重连"
     ;;
   scan)
     need_device

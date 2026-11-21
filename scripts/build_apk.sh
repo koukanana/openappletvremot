@@ -64,7 +64,7 @@ echo "[2/6] aapt2 link"
 "$AAPT2" link "${LINK_ARGS[@]}"
 
 echo "[3/6] javac"
-javac --release 8 -Xlint:-options -cp "$AJ" -d build/classes $(find src -name '*.java') 2>&1 \
+javac --release 8 -encoding UTF-8 -Xlint:-options -cp "$AJ" -d build/classes $(find src -name '*.java') 2>&1 \
   | grep -vE '^Note:' || true
 
 echo "[4/6] d8"

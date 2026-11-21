@@ -126,6 +126,10 @@ adb shell getevent -lt /dev/input/eventN      # 按方向键应出 EV_MSC MSC_SC
 
 遥控器掉线自行解绑（`BOND_STATE_NONE`）时，重跑一次 `tv.sh <ip> pair` 即可（仍按名称自动匹配，不需要 MAC）；只是重新接 HID 可以更快：`am start -n com.atvremote.pair/.MainActivity --ez hid true`（工具会优先挑名称匹配的已配对设备）。
 
+需要人来判断「连哪一台」时（家里蓝牙设备多、名字都叫不出来），把界面交给用户：`tv.sh <ip> gui`，左侧列表选设备、右侧按钮配对/重连。不要自己在几十台设备里猜 MAC。
+
+排查掉线时的固定顺序：先看绑定还在不在（`Bonded devices` 段空 = 绑定丢了，得重配），再看 HID 状态，最后看设备是否在广播（`--ez scan true` 扫一轮，扫不到说明是电量/休眠/被手机连走，不是电视侧问题）。
+
 ## §4 部署按键重映射服务
 
 **为什么必须用无障碍服务**：`/system/usr/keylayout/` 是只读分区、`/data/system/devices/keylayout/` 不存在，无 root 改不了布局文件；而 `INJECT_EVENTS` 是签名权限，自定义服务无法注入按键。所以映射目标只能是「系统全局动作」或「启动某个 Activity」。
