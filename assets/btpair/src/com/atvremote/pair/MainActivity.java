@@ -150,6 +150,8 @@ public class MainActivity extends Activity {
     private String wantMac;
     private int seq;
     private long unbondArmedAt;
+    /** 程序还原焦点时置位，避免把外部指定/markDirty 之前的选中项覆盖成首行设备。 */
+    private boolean restoringFocus;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -885,7 +887,17 @@ public class MainActivity extends Activity {
         if (target != null) {
             target.post(new Runnable() {
                 public void run() {
+                    restoringFocus = true;
                     boolean ok = target.requestFocus();
+                    if (!ok) {
+                        restoringFocus = false;
+                    }
+                    // 兜底：requestFocus 没触发焦点变化时，避免标志卡住导致下一次真实聚焦被吞
+                    target.postDelayed(new Runnable() {
+                        public void run() {
+                            restoringFocus = false;
+                        }
+                    }, 0);
                     Log.i(TAG, "restore focus=" + ok + " cur=" + getCurrentFocus());
                 }
             });
@@ -936,6 +948,11 @@ public class MainActivity extends Activity {
         row.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             public void onFocusChange(View v, boolean hasFocus) {
                 if (hasFocus) {
+                    // 焦点由程序还原时不算用户主动选择，否则外部 --es mac 指定的设备会被首行顶掉
+                    if (restoringFocus) {
+                        restoringFocus = false;
+                        return;
+                    }
                     select(e.mac);
                 }
             }
