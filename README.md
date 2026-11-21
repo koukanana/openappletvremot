@@ -2,6 +2,10 @@
 
 **简体中文** · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [繁體中文](README.zh-TW.md) · [Deutsch](README.de.md)
 
+[![Release](https://img.shields.io/github/v/release/koukanana/openappletvremot?label=release)](https://github.com/koukanana/openappletvremot/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84.svg)](#兼容性)
+
 > 让小米蓝牙遥控器（2 / 2 Pro）在任何 Android TV 上全键可用。索尼 BRAVIA 实测通过，不用 root。
 
 CleanYourTV 把 Android TV 的皮换成了苹果风味，但手感换不了。Apple TV 那只遥控器单买两百多，而 Android TV 阵营里最接近它的硬件是小米蓝牙遥控器 2 / 2 Pro——99 元（咸鱼 6 折全新能到 60 上下）。
@@ -35,23 +39,45 @@ CleanYourTV 把 Android TV 的皮换成了苹果风味，但手感换不了。Ap
 ![配对工具界面](docs/images/btpair-gui.png)
 
 - **左侧**：扫描到的设备列表。已配对的排最上面，每行带「已配对 / 已连接」徽标和信号强度
-- **右侧**：选中设备的实时状态——配对状态、HID 通道（含是否已就绪为输入设备）、HID 优先级（低于 100 会标黄提示）
-- **操作**：配对 / 连接 HID / 重连（断开后重连并补写优先级 100）/ 断开 / 解除绑定（需连按两次确认）
+- **右侧**：选中设备的实时状态——配对状态、HID 通道、HID 优先级（低于 100 会标黄提示）、信号强度
+- **HID 那一行会说真话**：绿色 `已连接 · 按键生效` 才代表内核真的注册了输入节点；如果只是通道连上而节点没注册，会显示红色 `通道已连 · 按键未注册，点「修复」`——这种状态下按键一定没反应，别被「已连接」骗了
+- **操作**：配对 / 连接 HID / 重连（异常时按钮自动变成「修复」，先等通道回落到断开再重挂）/ 断开 / 解除绑定（需连按两次确认）
 - **右下角**：按键映射说明与实时生效状态，不用再登 adb 查 `settings get secure btremap_map`
 
 方向键移动焦点即选中，按右键直接跳到该设备第一个可用动作，OK 执行。焦点态是白色描边 + 填充提亮，不做缩放，所以不会撑出按钮原本的边框。命令行入口全部保留，`tv.sh <ip> gui` 可以直接拉起界面。
 
-## 三个坑（也是这个项目的全部内容）
+配对前记得让遥控器进入配对模式（同时长按**主页 + 菜单** 5 秒到指示灯快闪）。只是「扫描得到」不代表「可以配对」——普通广播下发起配对会白等 30 秒然后失败，界面日志会提示你重新按组合键。
+
+## 五个坑（也是这个项目的全部内容）
 
 | 你以为的问题 | 真实情况 |
 |---|---|
 | 小米遥控器只认小米电视 | 它走的是标准 BLE HID（HOGP），任何蓝牙 HID 主机都能收。真正绑死小米生态的只有语音键和几个专属键 |
 | 索尼锁了蓝牙白名单，扫不到设备 | 锁住的不是协议栈，是**系统设置里那个「添加设备」界面**——它按设备类型过滤，第三方遥控器不显示。协议栈全程在正常扫描 |
 | 配对成功却完全没反应 | Android 9 把 `BluetoothHidHost.connect()` / `setPriority()` 放进了隐藏 API 黑名单，普通反射抛 `NoSuchMethodException`，看起来像"被索尼删了"。用 `VMRuntime.setHiddenApiExemptions("L")` 解除限制后立刻连通 |
+| 解绑后重新配对，界面全绿但按键没反应 | 界面读到的 `state=2` 只是 L2CAP 通道开了。解绑时直接 `removeBond()` 会让栈走 `btif_hh_virtual_unplug` 报 `status=5`，旧 uhid 句柄处于半死状态；重连复用同一个 fd，只能拿到 66 字节的残缺 report map（完整是 86）、`attr_mask=0`，内核拒绝注册输入节点。**重启蓝牙进程或重启电视都无效**，坏数据留在 gatt 缓存里。2.2 起改成先断开 HID、1.6 秒后再解绑 |
+| 配对要空等 30 秒然后失败 | 遥控器是纯 BLE，栈却把它记成 DUAL（`btif_get_device_type: type 2`），先试 BR/EDR。最后必然是 `L2CA_RemoveFixedChnl CID:0x0006 not connected` / `btm_proc_smp_cback: p_dev_rec is NULL`。2.2 起强制 `createBond(TRANSPORT_LE)`，0.9 秒完成 |
 
 第一堵墙长这样——界面在转圈，日志里却一直有设备：
 
 ![索尼添加配件界面](docs/images/sony-add-accessory.png)
+
+## 直接下载
+
+不想自己编译，从 [Releases](https://github.com/koukanana/openappletvremot/releases/latest) 拿预编译包（debug 签名，仅自用）：
+
+| 文件 | 版本 | 说明 |
+|---|---|---|
+| [btpair.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btpair.apk) | 2.2 | 遥控器配对助手：扫描 / 配对 / HID 连接 / 状态诊断 / 按键映射状态 |
+| [btremap.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btremap.apk) | 1.1 | 遥控器按键映射：无障碍服务，把 Home / TV / 语音键转到别处 |
+
+```bash
+adb install -r btpair.apk
+adb install -r btremap.apk
+adb shell settings put secure enabled_accessibility_services com.atvremote.remap/com.atvremote.remap.RemapService
+```
+
+装完先在电视上打开「遥控器配对助手」，按界面走一遍；映射服务是否生效看右下角那张卡。语音键现在还是占位，原因见[下文](#关于语音键未验证不是不能)。
 
 ## 快速开始
 
@@ -136,7 +162,7 @@ git clone https://github.com/koukanana/openappletvremot ~/.workbuddy/skills/open
 
 两个加起来不到 20KB 的 APK，都不需要 root：
 
-- **BTPair**（`assets/btpair`）：反射调 `BluetoothAdapter.startDiscovery` + `createBond` 完成配对，再反射 `BluetoothHidHost.setPriority(100)` / `connect()` 把遥控器登记为标准输入设备。核心是那行隐藏 API 豁免——没有它，`connect()` 永远抛 `NoSuchMethodException`。
+- **BTPair**（`assets/btpair`）：反射调 `BluetoothAdapter.startDiscovery` + `createBond(TRANSPORT_LE)` 完成配对（指定 LE 很关键，交给栈自己判断会先试 BR/EDR 空等 30 秒），再反射 `BluetoothHidHost.setPriority(100)` / `connect()` 把遥控器登记为标准输入设备。判定是否真的可用不看 profile 的 `state`，而是拿 `InputDevice.getDeviceIds()` 按名字核对内核有没有建出节点。核心还是那行隐藏 API 豁免——没有它，`connect()` 永远抛 `NoSuchMethodException`。
 - **BTRemap**（`assets/btremap`）：一个裁剪到最小的 `AccessibilityService`，声明 `CAPABILITY_CAN_REQUEST_FILTER_KEY_EVENTS`，只做两件事——执行系统全局动作（`GLOBAL_ACTION_HOME` 等），或启动某个 Activity（可附带 `KEY_EVENT` extra）。映射配置存在 `Settings.Secure.btremap_map`，改完即时生效，不用重启。
 
 为什么不做"拦截 A 键发出 B 键"：`INJECT_EVENTS` 是签名权限，第三方应用拿不到。所以重映射的上限就是"全局动作 + 启动界面"，Home 和 TV 键正好落在能力范围内。
@@ -170,7 +196,7 @@ assets/btpair/              配对 + HID 激活（源码）
 assets/btremap/             无障碍按键重映射（源码）
 release/                    预编译 APK（debug 签名，仅自用）
 references/sony-bravia.md   索尼型号的菜单位置、输入选择 Activity、遥测命令
-references/pitfalls.md      13 条实测走不通的路，省你再试一遍
+references/pitfalls.md      30+ 条实测走不通的路，省你再试一遍
 docs/让小米强兼索尼.md        故事版：为什么做、怎么跑通的
 docs/完整指南.md             技术版：逐步操作 + 提示词全文
 ```
@@ -187,6 +213,15 @@ docs/完整指南.md             技术版：逐步操作 + 提示词全文
 这个方案目前只在索尼 BRAVIA 上跑通。其他品牌（TCL、海信、创维、小米电视、Shield、Chromecast with Google TV…）原理完全一致，差别只有两处：**输入选择界面的 Activity 名**和**个别键码**。
 
 如果你手上有别的电视，欢迎一起来把兼容方案补齐——测通了直接提 PR，说明机型和系统版本，把 `references/` 里补一份该品牌的实测数据（菜单位置、输入选择 Activity、键码表）就行，代码大概率不用改。
+
+## 版本历史
+
+| 版本 | 日期 | 主要变化 |
+|---|---|---|
+| [v2.2](https://github.com/koukanana/openappletvremot/releases/tag/v2.2) | 2026-11-21 | 修掉「解绑 → 重新配对 → 界面正常但按键失效」：状态判定加内核输入节点核对、解绑前先断开 HID、异常时一键「修复」、配对强制走 LE（30 秒超时 → 0.9 秒） |
+| v2.1 | 2026-11-21 | 应用图标与名称、右下角按键映射面板、修焦点态撑破容器 |
+| v2.0 | 2026-11-21 | 完整图形界面：设备列表自选、右侧状态面板、重连与解绑 |
+| v1.0 | 2026-11-06 | 初版：命令行配对 + 隐藏 API 豁免 + 按键重映射 |
 
 ## 免责
 

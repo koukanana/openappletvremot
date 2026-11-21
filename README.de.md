@@ -2,6 +2,10 @@
 
 [简体中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [繁體中文](README.zh-TW.md) · **Deutsch**
 
+[![Release](https://img.shields.io/github/v/release/koukanana/openappletvremot?label=release)](https://github.com/koukanana/openappletvremot/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84.svg)](#compatibility)
+
 > Alle Tasten der Xiaomi Bluetooth-Fernbedienung (2 / 2 Pro) auf jedem Android TV. Auf Sony BRAVIA verifiziert, kein Root nötig.
 
 CleanYourTV verpasst Android TV eine Oberfläche im Apple-Stil – aber nicht das Gefühl in der Hand. Die Fernbedienung des Apple TV kostet einzeln über 200 Euro, und die nächste Hardware im Android-TV-Umfeld ist die Xiaomi Bluetooth-Fernbedienung 2 / 2 Pro: 99 Yuan neu, gebraucht in neuwertigem Zustand etwa 60 Yuan.
@@ -28,17 +32,48 @@ Von Haus aus sprechen die beiden nicht miteinander: Xiaomi garantiert seine Fern
 
 Nach dem Fix: **Steuerkreuz, OK, Zurück, Home, Lautstärke, Menü, Ein/Aus und TV (auf Eingangswahl umgelegt) funktionieren alle, und die Fernbedienung verbindet sich nach einem Neustart selbst wieder.**
 
-## Die drei Mauern (= das ganze Projekt)
+## GUI
+
+`btpair` installiert sich als **Kopplungsassistent** — eine vollständige Fernbedienungsverwaltung direkt auf dem TV:
+
+- **Links**: gefundene Geräte; gekoppelte stehen oben, mit `Gekoppelt / Verbunden`-Badges und Signalstärke
+- **Rechts**: Live-Status des gewählten Geräts — Kopplungsstatus, HID-Kanal, HID-Priorität, RSSI
+- **Die HID-Zeile sagt die Wahrheit**: grün `Verbunden · Tasten wirksam` heißt, der Kernel hat wirklich einen Eingabeknoten angelegt. Steht nur der Kanal, erscheint rot `Kanal verbunden · Tasten nicht registriert — „Reparieren“ tippen`; in diesem Zustand sind die Tasten garantiert tot
+- **Aktionen**: Koppeln / HID verbinden / Neu verbinden (wird bei Problemen zu `Reparieren`) / Trennen / Entkoppeln (zwei Tipps)
+- **Unten rechts**: aktuelles Tasten-Mapping und ob es aktiv ist
+
+Über die Kommandozeile: `tv.sh <ip> gui`.
+
+## Die fünf Mauern (= das ganze Projekt)
 
 | Was man vermutet | Was tatsächlich los ist |
 |---|---|
 | Die Xiaomi-Fernbedienung läuft nur an Xiaomi-Fernsehern | Sie spricht Standard-BLE-HID (HOGP), jeder Bluetooth-HID-Host kann sie empfangen. Wirklich an Xiaomi gebunden sind nur die Sprachtaste und einige Sondertasten |
 | Sony hat eine Bluetooth-Whitelist, deshalb findet die Suche nichts | Blockiert ist nicht der Stack, sondern **der Bildschirm „Zubehör hinzufügen“ in den Einstellungen** – er filtert nach Gerätetyp, deshalb erscheinen Fremd-Fernbedienungen nicht. Der Stack scannt die ganze Zeit weiter |
 | Pairing klappt, danach reagiert nichts | Android 9 hat `BluetoothHidHost.connect()` / `setPriority()` auf die Sperrliste der versteckten APIs gesetzt. Normale Reflection wirft `NoSuchMethodException` – das sieht exakt so aus, als hätte Sony die Methode entfernt. Ein vorheriger Aufruf von `VMRuntime.setHiddenApiExemptions("L")` lässt beides durch, und die Verbindung steht sofort |
+| Nach dem Entkoppeln neu gekoppelt: UI sieht perfekt aus, keine Taste reagiert | Was die UI als `state=2` liest, bedeutet nur, dass der L2CAP-Kanal offen ist. Ein direktes `removeBond()` lässt den Stack `btif_hh_virtual_unplug` mit `status=5` scheitern und hinterlässt ein halbtotes uhid-Handle. Die Neuverbindung nutzt denselben fd und bekommt nur eine auf 66 Byte abgeschnittene report map (vollständig wären es 86) mit `attr_mask=0`, woraufhin der Kernel die Registrierung des Eingabegeräts verweigert. **Weder Bluetooth-Neustart noch TV-Neustart hilft** — die kaputten Daten liegen im gatt-Cache. Seit 2.2 trennt der Entkoppelvorgang zuerst HID und wartet 1,6 s |
+| Die Kopplung hängt 30 Sekunden und scheitert dann | Die Fernbedienung ist reines BLE, der Stack führt sie aber als DUAL (`btif_get_device_type: type 2`) und versucht zuerst BR/EDR. Es endet immer bei `L2CA_RemoveFixedChnl CID:0x0006 not connected` / `btm_proc_smp_cback: p_dev_rec is NULL`. Seit 2.2 erzwingt die Kopplung `createBond(TRANSPORT_LE)` und ist in 0,9 s fertig |
 
 So sieht die erste Mauer aus – der Spinner dreht, während im Log weiter das Gerät auftaucht:
 
 ![Sony Zubehör-Suche](docs/images/sony-add-accessory.png)
+
+## Download
+
+Lieber fertig statt selbst gebaut? Die vorkompilierten APKs gibt es unter [Releases](https://github.com/koukanana/openappletvremot/releases/latest) (debug-signiert, nur für den Eigengebrauch):
+
+| Datei | Version | Inhalt |
+|---|---|---|
+| [btpair.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btpair.apk) | 2.2 | Kopplungsassistent: Scannen / Koppeln / HID-Verbindung / Diagnose / Mapping-Status |
+| [btremap.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btremap.apk) | 1.1 | Tasten-Remapping-Dienst: Home / TV / Sprache auf ein anderes Ziel legen |
+
+```bash
+adb install -r btpair.apk
+adb install -r btremap.apk
+adb shell settings put secure enabled_accessibility_services com.atvremote.remap/com.atvremote.remap.RemapService
+```
+
+Danach am TV den **Kopplungsassistenten** öffnen und der Oberfläche folgen.
 
 ## Schnellstart
 
@@ -174,6 +209,15 @@ docs/完整指南.md             Technik-Version: Schritt für Schritt + komplet
 Bisher läuft es nur auf Sony BRAVIA. Bei allen anderen Marken (TCL, Hisense, Skyworth, Xiaomi TV, Shield, Chromecast with Google TV …) ist das Prinzip identisch – der Unterschied sind nur **der Activity-Name der Eingangswahl** und **einige Keycodes**.
 
 Wer einen anderen Fernseher hat: PRs sind sehr willkommen. Einfach testen, Modell und OS-Version nennen und unter `references/<marke>.md` die Messwerte ergänzen (Menüpfade, Eingangswahl-Activity, Keycode-Tabelle). Am Code muss dafür höchstwahrscheinlich nichts geändert werden.
+
+## Versionshistorie
+
+| Version | Datum | Änderungen |
+|---|---|---|
+| [v2.2](https://github.com/koukanana/openappletvremot/releases/tag/v2.2) | 2026-11-21 | Behebt „Entkoppeln → neu koppeln → UI okay, aber keine Taste": Prüfung des Eingabeknotens, HID-Trennung vor dem Entkoppeln, `Reparieren` per Tipp, LE-erzwungene Kopplung (30 s → 0,9 s) |
+| v2.1 | 2026-11-21 | App-Icon und Name, Mapping-Karte unten rechts, Fokus-Zustand sprengt den Button nicht mehr |
+| v2.0 | 2026-11-21 | Vollständige GUI: Gerät aus der Liste wählen, Statuspanel rechts, Neuverbinden und Entkoppeln |
+| v1.0 | 2026-11-06 | Erstversion: CLI-Kopplung, Hidden-API-Ausnahme, Tasten-Remapping |
 
 ## Haftungsausschluss
 

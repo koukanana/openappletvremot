@@ -2,6 +2,10 @@
 
 [简体中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · **한국어** · [繁體中文](README.zh-TW.md) · [Deutsch](README.de.md)
 
+[![Release](https://img.shields.io/github/v/release/koukanana/openappletvremot?label=release)](https://github.com/koukanana/openappletvremot/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84.svg)](#compatibility)
+
 > Xiaomi Bluetooth Remote(2 / 2 Pro)를 어떤 Android TV에서든 모든 키가 동작하게 만듭니다. Sony BRAVIA 실측 검증 완료, root 불필요.
 
 CleanYourTV는 Android TV의 겉모습을 Apple 스타일로 바꿔 주지만, 리모컨이 손에 쥐어지는 느낌까지 바꿔 주지는 못합니다. Apple TV 리모컨은 단품이 20만 원이 넘는데, Android TV 진영에서 그것에 가장 가까운 하드웨어가 Xiaomi Bluetooth Remote 2 / 2 Pro입니다. 정가 99위안, 중고 거래에서 6할 정도(60위안 안팎)면 새것을 구할 수 있습니다.
@@ -28,17 +32,48 @@ CleanYourTV는 Android TV의 겉모습을 Apple 스타일로 바꿔 주지만, �
 
 수정 후 상태: **방향, 확인, 뒤로, 홈, 볼륨, 메뉴, 전원, TV(입력 전환으로 변경)가 모두 정상 동작하고, 재부팅 후에도 자동으로 다시 연결됩니다.**
 
-## 세 개의 벽 (이 프로젝트의 전부)
+## GUI
+
+`btpair`는 TV에서 실행되는 **리모컨 연결 도우미**로 설치됩니다:
+
+- **왼쪽**: 검색된 기기 목록. 페어링된 기기가 위로 올라오고 `페어링됨 / 연결됨` 배지와 신호 세기가 표시됩니다
+- **오른쪽**: 선택한 기기의 상태 — 페어링 상태, HID 채널, HID 우선순위, RSSI
+- **HID 줄은 거짓말하지 않습니다**: 초록색 `연결됨 · 키 작동`이면 커널이 실제로 입력 노드를 등록한 것입니다. 채널만 연결된 경우 빨간색 `채널 연결됨 · 키 미등록, 「복구」 누르세요`가 뜨며, 이 상태에서 키는 반드시 동작하지 않습니다
+- **동작**: 페어링 / HID 연결 / 재연결(이상 시 `복구`로 바뀜) / 연결 해제 / 페어링 해제(두 번 눌러 확인)
+- **오른쪽 아래**: 현재 키 매핑과 적용 상태
+
+명령줄에서는 `tv.sh <ip> gui`로 열 수 있습니다.
+
+## 다섯 개의 벽 (이 프로젝트의 전부)
 
 | 흔한 오해 | 실제 |
 |---|---|
 | Xiaomi 리모컨은 Xiaomi TV 전용이다 | 속은 표준 BLE HID(HOGP)입니다. 블루투스 HID 호스트라면 무엇이든 받습니다. Xiaomi 생태계에 묶인 것은 음성 키와 일부 전용 키뿐입니다 |
 | Sony가 블루투스 화이트리스트를 걸어서 기기가 안 잡힌다 | 잠긴 것은 프로토콜 스택이 아니라 **설정의 "액세서리 추가" 화면**입니다. 기기 유형으로 필터링하기 때문에 서드파티 리모컨이 목록에 뜨지 않습니다. 스택은 내내 정상적으로 스캔하고 있습니다 |
 | 페어링은 됐는데 전혀 반응이 없다 | Android 9가 `BluetoothHidHost.connect()` / `setPriority()`를 숨겨진 API 차단 목록에 넣었습니다. 평범한 리플렉션은 `NoSuchMethodException`을 던지므로 "Sony가 메서드를 지웠다"처럼 보입니다. `VMRuntime.setHiddenApiExemptions("L")`을 먼저 호출하면 둘 다 통과하고 연결이 즉시 올라갑니다 |
+| 페어링 해제 후 다시 페어링하면 UI는 정상인데 키가 안 먹힘 | UI가 읽는 `state=2`는 L2CAP 채널이 열린 것일 뿐입니다. `removeBond()`를 바로 호출하면 스택이 `btif_hh_virtual_unplug`를 `status=5`로 실패시키고 반쯤 죽은 uhid 핸들이 남습니다. 재연결은 같은 fd를 재사용해 66바이트로 잘린 report map(완전하면 86)과 `attr_mask=0`만 받고, 커널이 입력 장치 등록을 거부합니다. **블루투스 재시작도 TV 재부팅도 소용없습니다** — 잘못된 데이터가 gatt 캐시에 남습니다. 2.2부터는 해제 전에 HID를 끊고 1.6초 기다립니다 |
+| 페어링이 30초 동안 멈췄다가 실패함 | 리모컨은 BLE 전용인데 스택이 DUAL(`btif_get_device_type: type 2`)로 기록해 BR/EDR을 먼저 시도합니다. 항상 `L2CA_RemoveFixedChnl CID:0x0006 not connected` / `btm_proc_smp_cback: p_dev_rec is NULL`로 끝납니다. 2.2부터는 `createBond(TRANSPORT_LE)`를 강제해 0.9초에 완료됩니다 |
 
 첫 번째 벽은 이렇게 생겼습니다. 화면은 계속 돌아가는데 로그에는 기기가 계속 찍힙니다:
 
 ![Sony add-accessory screen](docs/images/sony-add-accessory.png)
+
+## 다운로드
+
+직접 빌드하고 싶지 않다면 [Releases](https://github.com/koukanana/openappletvremot/releases/latest)에서 미리 빌드된 APK를 받으세요(debug 서명, 개인용):
+
+| 파일 | 버전 | 설명 |
+|---|---|---|
+| [btpair.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btpair.apk) | 2.2 | 리모컨 연결 도우미: 스캔 / 페어링 / HID 연결 / 상태 진단 / 매핑 상태 |
+| [btremap.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btremap.apk) | 1.1 | 키 리매핑 서비스: Home / TV / 음성 키를 다른 동작으로 |
+
+```bash
+adb install -r btpair.apk
+adb install -r btremap.apk
+adb shell settings put secure enabled_accessibility_services com.atvremote.remap/com.atvremote.remap.RemapService
+```
+
+설치 후 TV에서 **리모컨 연결 도우미**를 열고 화면 안내를 따르세요.
 
 ## 빠른 시작
 
@@ -174,6 +209,15 @@ docs/完整指南.md             기술 버전: 단계별 절차 + 프롬프트 
 현재는 Sony BRAVIA에서만 검증되었습니다. 다른 브랜드(TCL, Hisense, Skyworth, Xiaomi TV, Shield, Chromecast with Google TV…)도 원리는 동일하며, 차이는 **입력 선택 화면의 액티비티 이름**과 **일부 키코드** 두 가지뿐입니다.
 
 다른 TV가 있다면 PR로 함께 채워 주세요. 실측 후 모델과 OS 버전을 적고 `references/<brand>.md`에 실측 데이터(메뉴 위치, 입력 선택 액티비티, 키코드 표)를 추가하면 됩니다. 코드는 대부분 수정할 필요가 없습니다.
+
+## 버전 기록
+
+| 버전 | 날짜 | 주요 변경 |
+|---|---|---|
+| [v2.2](https://github.com/koukanana/openappletvremot/releases/tag/v2.2) | 2026-11-21 | "해제 → 재페어링 → UI 정상인데 키 미동작" 수정: 입력 노드 검증, 해제 전 HID 연결 종료, 원탭 `복구`, LE 강제 페어링(30초 → 0.9초) |
+| v2.1 | 2026-11-21 | 앱 아이콘과 이름, 오른쪽 아래 키 매핑 카드, 포커스 시 버튼이 넘치는 문제 수정 |
+| v2.0 | 2026-11-21 | 전체 GUI: 목록에서 기기 선택, 오른쪽 상태 패널, 재연결과 해제 |
+| v1.0 | 2026-11-06 | 초기 버전: CLI 페어링, 숨김 API 예외, 키 리매핑 |
 
 ## 면책
 

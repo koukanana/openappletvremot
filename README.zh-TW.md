@@ -2,6 +2,10 @@
 
 [简体中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · **繁體中文** · [Deutsch](README.de.md)
 
+[![Release](https://img.shields.io/github/v/release/koukanana/openappletvremot?label=release)](https://github.com/koukanana/openappletvremot/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84.svg)](#compatibility)
+
 > 讓小米藍牙遙控器（2 / 2 Pro）在任何 Android TV 上全鍵可用。Sony BRAVIA 實機驗證通過，不需要 root。
 
 CleanYourTV 把 Android TV 的外觀換成了蘋果風格，但手感換不了。Apple TV 那支遙控器單買要兩百多人民幣，而 Android TV 陣營裡最接近它的硬體是小米藍牙遙控器 2 / 2 Pro——99 元（二手平台六折全新大約 60 元）。
@@ -28,17 +32,48 @@ CleanYourTV 把 Android TV 的外觀換成了蘋果風格，但手感換不了�
 
 修正後的狀態：**方向、確認、返回、首頁、音量、選單、電源、TV（改成切換輸入）全部正常，重新開機後自動重連。**
 
-## 三道牆（也就是這個專案的全部內容）
+## 圖形介面
+
+`btpair` 裝到電視上叫 **遙控器配對助手**，是一個完整的遙控器管理介面：
+
+- **左側**：掃描到的裝置清單。已配對的排最上面，每行帶「已配對 / 已連線」徽標和訊號強度
+- **右側**：選中裝置的即時狀態——配對狀態、HID 通道、HID 優先級、訊號強度
+- **HID 那一行會說真話**：綠色 `已連線 · 按鍵生效` 才代表核心真的註冊了輸入節點；若只是通道連上而節點沒註冊，會顯示紅色 `通道已連 · 按鍵未註冊，點「修復」`，這種狀態下按鍵一定沒反應
+- **操作**：配對 / 連接 HID / 重連（異常時按鈕變成「修復」）/ 斷開 / 解除綁定（需連按兩次確認）
+- **右下角**：按鍵映射說明與即時生效狀態
+
+`tv.sh <ip> gui` 可以直接拉起介面。
+
+## 五道牆（也就是這個專案的全部內容）
 
 | 你以為的問題 | 實際情況 |
 |---|---|
 | 小米遙控器只認小米電視 | 它走的是標準 BLE HID（HOGP），任何藍牙 HID 主機都能收。真正綁死小米生態的只有語音鍵和幾個專屬鍵 |
 | Sony 鎖了藍牙白名單，掃不到裝置 | 鎖住的不是協定堆疊，是**系統設定裡那個「新增配件」畫面**——它按裝置類型過濾，第三方遙控器不會顯示。協定堆疊全程都在正常掃描 |
 | 配對成功卻完全沒反應 | Android 9 把 `BluetoothHidHost.connect()` / `setPriority()` 放進了隱藏 API 黑名單，一般反射會丟出 `NoSuchMethodException`，看起來像「被 Sony 刪掉了」。用 `VMRuntime.setHiddenApiExemptions("L")` 解除限制後立刻就連上 |
+| 解除綁定後重新配對，介面全綠但按鍵沒反應 | 介面讀到的 `state=2` 只是 L2CAP 通道開了。直接呼叫 `removeBond()` 會讓堆疊走 `btif_hh_virtual_unplug` 報 `status=5`，舊 uhid 句柄處於半死狀態；重連複用同一個 fd，只能拿到 66 位元組的殘缺 report map（完整是 86）、`attr_mask=0`，核心拒絕註冊輸入節點。**重啟藍牙或重啟電視都無效**，壞資料留在 gatt 快取裡。2.2 起改成先斷開 HID、1.6 秒後再解綁 |
+| 配對要空等 30 秒然後失敗 | 遙控器是純 BLE，堆疊卻記成 DUAL（`btif_get_device_type: type 2`），先試 BR/EDR。最後必然是 `L2CA_RemoveFixedChnl CID:0x0006 not connected` / `btm_proc_smp_cback: p_dev_rec is NULL`。2.2 起強制 `createBond(TRANSPORT_LE)`，0.9 秒完成 |
 
 第一道牆長這樣——畫面一直轉圈，日誌裡卻一直有裝置：
 
 ![Sony 新增配件畫面](docs/images/sony-add-accessory.png)
+
+## 直接下載
+
+不想自己編譯，從 [Releases](https://github.com/koukanana/openappletvremot/releases/latest) 取得預編譯包（debug 簽名，僅供自用）：
+
+| 檔案 | 版本 | 說明 |
+|---|---|---|
+| [btpair.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btpair.apk) | 2.2 | 遙控器配對助手：掃描 / 配對 / HID 連線 / 狀態診斷 / 按鍵映射狀態 |
+| [btremap.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btremap.apk) | 1.1 | 遙控器按鍵映射：無障礙服務，把 Home / TV / 語音鍵轉到別處 |
+
+```bash
+adb install -r btpair.apk
+adb install -r btremap.apk
+adb shell settings put secure enabled_accessibility_services com.atvremote.remap/com.atvremote.remap.RemapService
+```
+
+安裝後先在電視上開啟「遙控器配對助手」，照介面走一遍。
 
 ## 快速開始
 
@@ -174,6 +209,15 @@ docs/完整指南.md             技術版：逐步操作 + 提示詞全文（�
 這個方案目前只在 Sony BRAVIA 上跑通。其他品牌（TCL、海信、創維、小米電視、Shield、Chromecast with Google TV…）原理完全一致，差別只有兩處：**輸入選擇畫面的 Activity 名稱**和**個別鍵碼**。
 
 如果你手上有別的電視，歡迎一起把相容方案補齊——測通了直接送 PR，說明機型和系統版本，在 `references/` 裡補一份該品牌的實測資料（選單位址、輸入選擇 Activity、鍵碼表）就行，程式碼大概率不用改。
+
+## 版本歷史
+
+| 版本 | 日期 | 主要變化 |
+|---|---|---|
+| [v2.2](https://github.com/koukanana/openappletvremot/releases/tag/v2.2) | 2026-11-21 | 修掉「解綁 → 重新配對 → 介面正常但按鍵失效」：狀態判定加入核心輸入節點核對、解綁前先斷開 HID、異常時一鍵「修復」、配對強制走 LE（30 秒 → 0.9 秒） |
+| v2.1 | 2026-11-21 | 應用圖示與名稱、右下角按鍵映射面板、修焦點態撐破容器 |
+| v2.0 | 2026-11-21 | 完整圖形介面：裝置清單自選、右側狀態面板、重連與解綁 |
+| v1.0 | 2026-11-06 | 初版：命令列配對 + 隱藏 API 豁免 + 按鍵重映射 |
 
 ## 免責
 

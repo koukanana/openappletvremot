@@ -2,6 +2,10 @@
 
 [简体中文](README.md) · [English](README.en.md) · **日本語** · [한국어](README.ko.md) · [繁體中文](README.zh-TW.md) · [Deutsch](README.de.md)
 
+[![Release](https://img.shields.io/github/v/release/koukanana/openappletvremot?label=release)](https://github.com/koukanana/openappletvremot/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84.svg)](#compatibility)
+
 > Xiaomi Bluetooth Remote（2 / 2 Pro）を、どの Android TV でも全キー使えるようにする。Sony BRAVIA で実機検証済み、root 不要。
 
 CleanYourTV は Android TV の見た目を Apple 風に変えてくれる。でも、リモコンの手触りまでは変えられない。Apple TV のリモコンは単体で 2 万円以上するが、Android TV 界隈でそれに一番近いハードが Xiaomi Bluetooth Remote 2 / 2 Pro だ。新品 99 元、フリマで 6 割程度（60 元前後）で買える。
@@ -28,17 +32,48 @@ CleanYourTV は Android TV の見た目を Apple 風に変えてくれる。で�
 
 修正後の状態：**十字・決定・戻る・ホーム・音量・メニュー・電源・TV（入力切替に変更）がすべて正常、再起動後も自動で再接続する。**
 
-## 三つの壁（＝このプロジェクトの全部）
+## GUI
+
+`btpair` はテレビ上で動く**リモコン接続アシスタント**としてインストールされます：
+
+- **左側**：検出したデバイス一覧。ペアリング済みが上に並び、`ペアリング済み / 接続済み` バッジと電波強度が付きます
+- **右側**：選択中デバイスの状態 — ペアリング状態、HID チャンネル、HID 優先度、RSSI
+- **HID 行は嘘をつきません**：緑の `接続済み · キー有効` はカーネルが入力ノードを登録した証拠です。チャンネルだけ繋がっている場合は赤の `チャンネル接続済み · キー未登録、「修復」を押す` になり、その状態ではキーは確実に効きません
+- **操作**：ペアリング / HID 接続 / 再接続（異常時は `修復` に変化）/ 切断 / ペアリング解除（二回押しで確定）
+- **右下**：現在のキーマッピングと有効状態
+
+コマンドラインからは `tv.sh <ip> gui` で開けます。
+
+## 五つの壁（＝このプロジェクトの全部）
 
 | 思い込み | 実際 |
 |---|---|
 | Xiaomi のリモコンは Xiaomi のテレビ専用 | 中身は標準 BLE HID（HOGP）。Bluetooth HID ホストなら何でも受け取れる。Xiaomi に縛られているのは音声キーと一部の専用キーだけ |
 | Sony が Bluetooth をホワイトリスト制でロックしているから検出されない | ロックされているのはプロトコルスタックではなく、**設定の「アクセサリを追加」画面**。デバイスタイプでフィルタするので、サードパーティ製リモコンは一覧に出ない。裏ではずっとスキャンしている |
 | ペアリングは成功したのに、まったく反応しない | Android 9 が `BluetoothHidHost.connect()` / `setPriority()` を hidden API のブロックリストに入れている。普通のリフレクションでは `NoSuchMethodException` になり、「Sony がメソッドを削除した」ように見える。`VMRuntime.setHiddenApiExemptions("L")` を先に呼べば両方通り、接続は即座に確立する |
+| ペアリング解除後に再ペアリングすると、UI は正常なのにキーが効かない | UI が読む `state=2` は L2CAP チャンネルが開いただけです。`removeBond()` を直接呼ぶとスタックが `btif_hh_virtual_unplug` を `status=5` で失敗させ、半死状態の uhid ハンドルが残ります。再接続は同じ fd を再利用し、66 バイトに切り詰められた report map（完全なら 86）と `attr_mask=0` しか取れないため、カーネルが入力デバイスの登録を拒否します。**Bluetooth の再起動もテレビの再起動も無効** — 壊れたデータは gatt キャッシュに残ります。2.2 以降は解除前に HID を切断し 1.6 秒待ちます |
+| ペアリングが 30 秒待たされた末に失敗する | リモコンは BLE 専用なのに、スタックは DUAL（`btif_get_device_type: type 2`）として記録し、先に BR/EDR を試します。最後は必ず `L2CA_RemoveFixedChnl CID:0x0006 not connected` / `btm_proc_smp_cback: p_dev_rec is NULL` になります。2.2 以降は `createBond(TRANSPORT_LE)` を強制し 0.9 秒で完了します |
 
 一つ目の壁はこういう見た目。画面は回り続け、ログにはデバイスが出続けている：
 
 ![Sony add-accessory screen](docs/images/sony-add-accessory.png)
+
+## ダウンロード
+
+自分でビルドしたくない場合は [Releases](https://github.com/koukanana/openappletvremot/releases/latest) からビルド済み APK を取得してください（debug 署名・個人利用向け）：
+
+| ファイル | バージョン | 内容 |
+|---|---|---|
+| [btpair.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btpair.apk) | 2.2 | リモコン接続アシスタント：スキャン / ペアリング / HID 接続 / 状態診断 / マッピング状態 |
+| [btremap.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btremap.apk) | 1.1 | キー再マッピングサービス：Home / TV / 音声キーを別の動作へ |
+
+```bash
+adb install -r btpair.apk
+adb install -r btremap.apk
+adb shell settings put secure enabled_accessibility_services com.atvremote.remap/com.atvremote.remap.RemapService
+```
+
+インストール後はテレビで「リモコン接続アシスタント」を開き、画面の指示に従ってください。
 
 ## クイックスタート
 
@@ -174,6 +209,15 @@ docs/完整指南.md             技術版：手順＋プロンプト全文（�
 現状 Sony BRAVIA でしか通っていない。他社（TCL、Hisense、Skyworth、Xiaomi TV、Shield、Chromecast with Google TV…）も原理は同一で、違いは **入力切替画面のアクティビティ名** と **一部のキーコード** の 2 点だけ。
 
 他のテレビをお持ちなら、ぜひ PR で埋めてほしい。実測したうえで、機種と OS バージョンを添えて `references/<brand>.md` に実測データ（メニュー位置、入力切替アクティビティ、キーコード表）を追加すればよい。コードはほぼ変更不要。
+
+## バージョン履歴
+
+| バージョン | 日付 | 主な変更 |
+|---|---|---|
+| [v2.2](https://github.com/koukanana/openappletvremot/releases/tag/v2.2) | 2026-11-21 | 「解除 → 再ペアリング → UI 正常だがキーが効かない」を修正：入力ノード検証、解除前の HID 切断、ワンタップ `修復`、LE 強制ペアリング（30 秒 → 0.9 秒） |
+| v2.1 | 2026-11-21 | アプリアイコンと名称、右下のキーマッピングカード、フォーカス時にボタンがはみ出す問題を修正 |
+| v2.0 | 2026-11-21 | フル GUI：一覧からデバイス選択、右側の状態パネル、再接続と解除 |
+| v1.0 | 2026-11-06 | 初版：CLI ペアリング、隠し API の解除、キー再マッピング |
 
 ## 免責
 

@@ -2,6 +2,10 @@
 
 [简体中文](README.md) · **English** · [日本語](README.ja.md) · [한국어](README.ko.md) · [繁體中文](README.zh-TW.md) · [Deutsch](README.de.md)
 
+[![Release](https://img.shields.io/github/v/release/koukanana/openappletvremot?label=release)](https://github.com/koukanana/openappletvremot/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84.svg)](#compatibility)
+
 > Full key support for the Xiaomi Bluetooth Remote (2 / 2 Pro) on any Android TV. Verified on Sony BRAVIA, no root required.
 
 CleanYourTV gives Android TV an Apple-flavoured launcher — but it can't change how the remote feels in your hand. Apple TV's remote alone costs around US$200, and the closest hardware in the Android TV ecosystem is the Xiaomi Bluetooth Remote 2 / 2 Pro — 99 CNY new, about 60 CNY used in mint condition.
@@ -28,17 +32,48 @@ Out of the box, the two refuse to talk: Xiaomi only guarantees its remotes on Xi
 
 After the fix: **D-pad, OK, Back, Home, Volume, Menu, Power and TV (remapped to input switch) all work, and the remote reconnects by itself after a reboot.**
 
-## The three walls (which is the whole project)
+## GUI
+
+`btpair` installs as **Remote Pairing Assistant** — a complete remote manager that runs on the TV itself:
+
+- **Left**: discovered devices; paired ones float to the top with `Paired / Connected` badges and signal strength
+- **Right**: live state of the selected device — bond state, HID channel, HID priority, RSSI
+- **HID tells the truth**: green `Connected · keys working` means the kernel really registered an input node. If only the channel is up you get a red `Channel up · keys not registered — tap Repair`, because in that state the keys are guaranteed dead
+- **Actions**: Pair / Connect HID / Reconnect (becomes `Repair` when broken) / Disconnect / Unbind (two taps to confirm)
+- **Bottom right**: current key mapping and whether it is live
+
+`tv.sh <ip> gui` opens it from the command line.
+
+## The five walls (which is the whole project)
 
 | What you'd assume | What's actually going on |
 |---|---|
 | The Xiaomi remote only works with Xiaomi TVs | It speaks standard BLE HID (HOGP), so any Bluetooth HID host can receive it. Only the voice key and a few vendor-specific keys are truly locked to Xiaomi |
 | Sony whitelists Bluetooth devices, that's why scanning finds nothing | What's locked is not the stack but **the "Add accessory" screen in Settings** — it filters by device type, so third-party remotes never show up. The stack keeps scanning the whole time |
 | Pairing succeeds, then nothing responds | Android 9 put `BluetoothHidHost.connect()` / `setPriority()` on the hidden-API blocklist. Plain reflection throws `NoSuchMethodException`, which looks exactly like "Sony deleted the method". Calling `VMRuntime.setHiddenApiExemptions("L")` first makes both work — the connection goes up immediately |
+| Re-paired after unbinding: the UI looks perfect, but no key responds | What the UI reads as `state=2` only means the L2CAP channel opened. Calling `removeBond()` directly makes the stack run `btif_hh_virtual_unplug` with `status=5`, leaving a half-dead uhid handle behind. The reconnect reuses the same fd and only gets a 66-byte truncated report map (the full one is 86) with `attr_mask=0`, so the kernel refuses to register an input device. **Restarting Bluetooth or the TV does not help** — the bad data sits in the gatt cache. Since 2.2 the unbond flow disconnects HID first and waits 1.6s |
+| Pairing stalls for 30 seconds, then fails | The remote is BLE-only, but the stack records it as DUAL (`btif_get_device_type: type 2`) and tries BR/EDR first. It always ends at `L2CA_RemoveFixedChnl CID:0x0006 not connected` / `btm_proc_smp_cback: p_dev_rec is NULL`. Since 2.2 pairing forces `createBond(TRANSPORT_LE)` and finishes in 0.9s |
 
 Here's what the first wall looks like — the spinner spins forever while the log keeps showing the device:
 
 ![Sony add-accessory screen](docs/images/sony-add-accessory.png)
+
+## Download
+
+Prefer not to build it yourself? Grab the prebuilt APKs from [Releases](https://github.com/koukanana/openappletvremot/releases/latest) (debug-signed, personal use only):
+
+| File | Version | What it is |
+|---|---|---|
+| [btpair.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btpair.apk) | 2.2 | Remote pairing assistant: scan / pair / HID connect / diagnostics / remap status |
+| [btremap.apk](https://github.com/koukanana/openappletvremot/releases/latest/download/btremap.apk) | 1.1 | Key remapping service: routes Home / TV / Voice somewhere else |
+
+```bash
+adb install -r btpair.apk
+adb install -r btremap.apk
+adb shell settings put secure enabled_accessibility_services com.atvremote.remap/com.atvremote.remap.RemapService
+```
+
+Open **Remote Pairing Assistant** on the TV afterwards and follow the UI.
 
 ## Quick start
 
@@ -174,6 +209,15 @@ docs/完整指南.md             technical version: step by step + full prompt (
 This only runs on Sony BRAVIA so far. Every other brand (TCL, Hisense, Skyworth, Xiaomi TV, Shield, Chromecast with Google TV…) works the same way — the only two differences are **the activity name of the input-selection screen** and **a handful of keycodes**.
 
 If you own another TV, pull requests are very welcome: test it, then add a `references/<brand>.md` with your measurements (menu paths, input-selection activity, keycode table) and the model plus OS version. The code most likely needs no changes at all.
+
+## Release history
+
+| Version | Date | Highlights |
+|---|---|---|
+| [v2.2](https://github.com/koukanana/openappletvremot/releases/tag/v2.2) | 2026-11-21 | Fixes "unbind → re-pair → UI fine but keys dead": input-node verification in the status panel, HID disconnect before unbond, one-tap `Repair`, LE-forced pairing (30s timeout → 0.9s) |
+| v2.1 | 2026-11-21 | App icon and name, key-mapping card in the bottom-right, focus state no longer overflows its button |
+| v2.0 | 2026-11-21 | Full GUI: pick a device from the list, live status panel, reconnect and unbind |
+| v1.0 | 2026-11-06 | Initial release: CLI pairing, hidden-API exemption, key remapping |
 
 ## Disclaimer
 
